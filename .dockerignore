@@ -1,0 +1,11 @@
+.env
+.git
+.gitignore
+data/
+tests/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+__MACOSX/
+README.md

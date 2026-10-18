@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "notebook-rag"
+version = "0.1.0"
+description = "Hybrid RAG engine – Phase 1"
+requires-python = ">=3.11"
+dependencies = []            # runtime deps declared in requirements.txt
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

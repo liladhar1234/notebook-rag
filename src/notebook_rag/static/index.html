@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Notebook RAG</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a; --border: #2e3350;
+    --accent: #6c63ff; --accent-hover: #857dff; --accent-dim: rgba(108,99,255,.15);
+    --text: #e8eaf6; --text-dim: #8892b0;
+    --success: #4caf82; --danger: #f06060; --warn: #f0a060; --info: #60b4f0;
+    --radius: 12px; --sidebar: 300px;
+  }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100dvh; display: flex; overflow: hidden; }
+
+  /* Sidebar */
+  .sidebar { width: var(--sidebar); min-width: var(--sidebar); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+  .sidebar-header { padding: 20px 18px 14px; border-bottom: 1px solid var(--border); }
+  .sidebar-header h1 { font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .sidebar-header h1 span.logo { font-size: 1.4rem; }
+  .sidebar-header p { font-size: .72rem; color: var(--text-dim); margin-top: 3px; }
+  .session-row { padding: 12px 18px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+  .session-row label { font-size: .72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing:.06em; }
+  .session-row input { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: .82rem; padding: 7px 10px; outline: none; width: 100%; transition: border .2s; }
+  .session-row input:focus { border-color: var(--accent); }
+
+  .pipeline-row { padding: 10px 18px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 5px; }
+  .pipeline-row label { font-size: .72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing:.06em; }
+  .pipeline-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+  .badge-pill { font-size: .65rem; padding: 3px 8px; border-radius: 20px; border: 1px solid; }
+  .badge-pill.on  { background: rgba(76,175,130,.12); border-color: var(--success); color: var(--success); }
+  .badge-pill.off { background: rgba(240,96,96,.08);  border-color: var(--danger);  color: var(--danger); }
+
+  .upload-section { padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .upload-section h2 { font-size: .75rem; color: var(--text-dim); text-transform: uppercase; letter-spacing:.06em; margin-bottom: 10px; }
+  .drop-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 22px 12px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; position: relative; }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: var(--accent-dim); }
+  .drop-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .drop-zone .icon { font-size: 1.8rem; margin-bottom: 6px; }
+  .drop-zone p { font-size: .78rem; color: var(--text-dim); line-height: 1.5; }
+  .drop-zone p strong { color: var(--accent); }
+  .drop-zone .badge { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; font-size: .65rem; padding: 2px 6px; margin: 1px; color: var(--text-dim); }
+  .upload-progress { margin-top: 10px; display: none; flex-direction: column; gap: 5px; }
+  .upload-progress.visible { display: flex; }
+  .progress-bar-track { background: var(--surface2); border-radius: 4px; height: 4px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: var(--accent); border-radius: 4px; animation: indeterminate 1.2s infinite linear; }
+  @keyframes indeterminate { 0% { transform: translateX(-100%); width: 60%; } 100% { transform: translateX(200%); width: 60%; } }
+  .upload-status { font-size: .75rem; color: var(--text-dim); }
+
+  .doc-list-section { flex: 1; overflow-y: auto; padding: 12px 18px; }
+  .doc-list-section h2 { font-size: .75rem; color: var(--text-dim); text-transform: uppercase; letter-spacing:.06em; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .doc-list-section h2 button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: .7rem; }
+  .doc-list-section h2 button:hover { text-decoration: underline; }
+  .doc-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; margin-bottom: 7px; display: flex; align-items: flex-start; gap: 9px; }
+  .doc-icon { font-size: 1.2rem; flex-shrink: 0; margin-top: 1px; }
+  .doc-info { flex: 1; min-width: 0; }
+  .doc-name { font-size: .8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .doc-meta { font-size: .68rem; color: var(--text-dim); margin-top: 2px; }
+  .doc-del { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: .9rem; padding: 2px 4px; border-radius: 4px; transition: color .15s, background .15s; flex-shrink: 0; }
+  .doc-del:hover { color: var(--danger); background: rgba(240,96,96,.12); }
+  .empty-docs { font-size: .78rem; color: var(--text-dim); text-align: center; padding: 20px 0; }
+
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .chat-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .chat-header h2 { font-size: .95rem; font-weight: 600; }
+  .chat-header .pill { font-size: .65rem; background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); border-radius: 20px; padding: 2px 9px; }
+  .messages { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+  .welcome { margin: auto; text-align: center; max-width: 420px; color: var(--text-dim); }
+  .welcome .big { font-size: 3rem; margin-bottom: 12px; }
+  .welcome h3 { font-size: 1.1rem; color: var(--text); margin-bottom: 8px; }
+  .welcome p { font-size: .82rem; line-height: 1.7; }
+
+  .msg { display: flex; flex-direction: column; gap: 6px; max-width: 780px; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.assistant { align-self: flex-start; align-items: flex-start; }
+  .bubble { padding: 12px 16px; border-radius: var(--radius); font-size: .88rem; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+  .msg.user .bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.assistant .bubble { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+
+  .mode-badge { font-size: .65rem; color: var(--text-dim); font-style: italic; }
+  .action-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .sources-toggle, .eval-btn { font-size: .72rem; color: var(--text-dim); background: none; border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; cursor: pointer; transition: color .15s, border-color .15s; }
+  .sources-toggle:hover { color: var(--accent); border-color: var(--accent); }
+  .eval-btn { color: var(--info); border-color: var(--info); }
+  .eval-btn:hover { background: rgba(96,180,240,.1); }
+  .eval-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .sources-panel { display: none; flex-direction: column; gap: 7px; max-width: 680px; }
+  .sources-panel.open { display: flex; }
+  .source-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: .75rem; line-height: 1.55; }
+  .source-chip .src-label { font-weight: 600; color: var(--accent); margin-bottom: 4px; display: block; }
+  .source-chip .src-text { color: var(--text-dim); }
+
+  .ragas-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; max-width: 480px; display: none; flex-direction: column; gap: 10px; }
+  .ragas-card.open { display: flex; }
+  .ragas-card h4 { font-size: .78rem; color: var(--info); margin-bottom: 2px; }
+  .ragas-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .metric-item { display: flex; flex-direction: column; gap: 3px; }
+  .metric-label { font-size: .68rem; color: var(--text-dim); text-transform: uppercase; letter-spacing:.05em; }
+  .metric-bar-track { background: var(--border); border-radius: 3px; height: 6px; overflow: hidden; }
+  .metric-bar-fill { height: 100%; border-radius: 3px; transition: width .6s ease; }
+  .metric-value { font-size: .8rem; font-weight: 600; }
+  .metric-na { font-size: .75rem; color: var(--text-dim); }
+  .warn-banner { font-size: .73rem; background: rgba(240,160,96,.1); border: 1px solid rgba(240,160,96,.4); color: var(--warn); border-radius: 8px; padding: 7px 11px; }
+  .typing { display: flex; gap: 5px; align-items: center; padding: 14px 16px; }
+  .typing span { width: 7px; height: 7px; background: var(--text-dim); border-radius: 50%; animation: bounce 1s infinite; }
+  .typing span:nth-child(2) { animation-delay: .15s; }
+  .typing span:nth-child(3) { animation-delay: .3s; }
+  @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-5px); } }
+  .input-bar { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0; }
+  .input-bar textarea { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: .88rem; padding: 12px 14px; resize: none; outline: none; min-height: 48px; max-height: 140px; line-height: 1.5; font-family: inherit; transition: border .2s; }
+  .input-bar textarea:focus { border-color: var(--accent); }
+  .input-bar textarea::placeholder { color: var(--text-dim); }
+  .send-btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius); width: 48px; height: 48px; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .2s; flex-shrink: 0; }
+  .send-btn:hover:not(:disabled) { background: var(--accent-hover); }
+  .send-btn:disabled { opacity: .45; cursor: not-allowed; }
+  #toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; font-size: .82rem; box-shadow: 0 8px 30px rgba(0,0,0,.4); transform: translateY(80px); opacity: 0; transition: transform .3s, opacity .3s; z-index: 999; max-width: 320px; }
+  #toast.show { transform: translateY(0); opacity: 1; }
+  #toast.success { border-color: var(--success); color: var(--success); }
+  #toast.error   { border-color: var(--danger);  color: var(--danger); }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  /* Chats */
+  .chats-section { padding: 12px 18px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; max-height: 230px; }
+  .chats-head { display: flex; align-items: center; justify-content: space-between; }
+  .chats-head h2 { font-size: .75rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; }
+  .new-chat { font-size: .74rem; color: #fff; background: var(--accent); border: none; border-radius: 8px; padding: 5px 11px; cursor: pointer; }
+  .new-chat:hover { background: var(--accent-hover); }
+  #chatList { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .chat-item { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; font-size: .8rem; color: var(--text-dim); }
+  .chat-item:hover { background: var(--surface2); }
+  .chat-item.active { background: var(--accent-dim); border-color: var(--accent); color: var(--text); }
+  .chat-item .chat-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-item .chat-del { background: none; border: none; color: var(--text-dim); cursor: pointer; opacity: 0; font-size: .85rem; }
+  .chat-item:hover .chat-del { opacity: 1; }
+  .chat-item .chat-del:hover { color: var(--danger); }
+  /* Account / login */
+  .user-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; font-size: .72rem; color: var(--text-dim); }
+  .user-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-row button { background: none; border: 1px solid var(--border); color: var(--text-dim); border-radius: 6px; padding: 3px 9px; font-size: .7rem; cursor: pointer; flex-shrink: 0; }
+  .user-row button:hover { color: var(--danger); border-color: var(--danger); }
+  .auth-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 2000; display: none; align-items: center; justify-content: center; padding: 20px; }
+  .auth-card { width: 100%; max-width: 360px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px 26px; display: flex; flex-direction: column; gap: 12px; }
+  .auth-card h2 { font-size: 1.15rem; display: flex; align-items: center; gap: 8px; }
+  .auth-card p.sub { font-size: .78rem; color: var(--text-dim); margin-top: -6px; }
+  .auth-card label { font-size: .72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; display: flex; flex-direction: column; gap: 5px; }
+  .auth-card input { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: .88rem; padding: 10px 12px; outline: none; text-transform: none; letter-spacing: 0; }
+  .auth-card input:focus { border-color: var(--accent); }
+  .auth-card button.primary { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 11px; font-size: .88rem; cursor: pointer; margin-top: 4px; }
+  .auth-card button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .auth-card button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  .auth-card .switch { font-size: .78rem; color: var(--text-dim); text-align: center; }
+  .auth-card .switch a { color: var(--accent); cursor: pointer; }
+  .auth-card .switch a:hover { text-decoration: underline; }
+  .auth-error { font-size: .78rem; color: var(--danger); min-height: 1em; }
+</style>
+</head>
+<body>
+
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-card">
+    <h2><span>📓</span> <span id="authTitle">Log in</span></h2>
+    <p class="sub" id="authSub">Your chats and documents are private to your account.</p>
+    <label>Email<input type="email" id="authEmail" autocomplete="email" /></label>
+    <label>Password<input type="password" id="authPassword" autocomplete="current-password" /></label>
+    <div class="auth-error" id="authError"></div>
+    <button class="primary" id="authSubmit" onclick="submitAuth()">Log in</button>
+    <div class="switch" id="authSwitch"></div>
+  </div>
+</div>
+
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h1><span class="logo">📓</span> Notebook RAG</h1>
+    <p>Hybrid RAG · Multi-Query · Reranking · RAGAS</p>
+    <div class="user-row"><span id="userEmail"></span><button onclick="logout()">Log out</button></div>
+    <div class="user-row" style="margin-top:4px"><span id="usageLine"></span></div>
+  </div>
+  <div class="chats-section">
+    <div class="chats-head"><h2>Chats</h2><button class="new-chat" onclick="newChat()">＋ New chat</button></div>
+    <div id="chatList"></div>
+  </div>
+  <div class="pipeline-row">
+    <label>Pipeline</label>
+    <div class="pipeline-badges" id="pipelineBadges">
+      <span class="badge-pill off" id="badge-mq">Multi-Query</span>
+      <span class="badge-pill off" id="badge-rr">Reranker</span>
+      <span class="badge-pill on">Hybrid RRF</span>
+      <span class="badge-pill on">RAGAS Eval</span>
+    </div>
+  </div>
+  <div class="upload-section">
+    <h2>Upload Documents</h2>
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" multiple />
+      <div class="icon">📂</div>
+      <p><strong>Click or drag & drop</strong><br>to upload documents</p>
+      <div style="margin-top:8px">
+        <span class="badge">PDF</span>
+        <span class="badge">DOCX</span>
+        <span class="badge">XLSX / CSV</span>
+        <span class="badge">PPTX</span>
+        <span class="badge">Images (OCR)</span>
+        <span class="badge">HTML</span>
+        <span class="badge">TXT / MD</span>
+      </div>
+    </div>
+    <div class="upload-progress" id="uploadProgress">
+      <div class="progress-bar-track"><div class="progress-bar-fill"></div></div>
+      <div class="upload-status" id="uploadStatus">Uploading…</div>
+    </div>
+  </div>
+  <div class="doc-list-section">
+    <h2>Documents <button onclick="loadDocs()">↺ Refresh</button></h2>
+    <div id="docList"><div class="empty-docs">No documents yet.</div></div>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="chat-header">
+    <h2>Ask your documents</h2>
+    <span class="pill" id="modelPill">Multi-Query · Hybrid · Reranker · RAGAS</span>
+  </div>
+  <div class="messages" id="messages">
+    <div class="welcome" id="welcome">
+      <div class="big">🔍</div>
+      <h3>Upload a document, then ask anything</h3>
+      <p>Powered by Multi-Query Retrieval, Cross-Encoder Reranking, and RAGAS evaluation metrics.</p>
+    </div>
+  </div>
+  <div class="input-bar">
+    <textarea id="questionInput" rows="1" placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"></textarea>
+    <button class="send-btn" id="sendBtn" onclick="sendQuery()" title="Send">➤</button>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const API = '';
+// Any 401 from a data route means the login expired: show the login screen.
+const _fetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const r = await _fetch(...args);
+  if (r.status === 401 && !String(args[0]).includes('/auth/')) showAuth();
+  return r;
+};
+let authMode = 'login';
+function setAuthMode(mode) {
+  authMode = mode;
+  const login = mode === 'login';
+  document.getElementById('authTitle').textContent = login ? 'Log in' : 'Create account';
+  document.getElementById('authSubmit').textContent = login ? 'Log in' : 'Sign up';
+  document.getElementById('authPassword').autocomplete = login ? 'current-password' : 'new-password';
+  document.getElementById('authSwitch').innerHTML = login
+    ? `New here? <a onclick="setAuthMode('register')">Create an account</a>`
+    : `Already have an account? <a onclick="setAuthMode('login')">Log in</a>`;
+  document.getElementById('authError').textContent = '';
+}
+function showAuth() {
+  document.getElementById('authOverlay').style.display = 'flex';
+  setAuthMode(authMode);
+}
+async function submitAuth() {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const err = document.getElementById('authError'), btn = document.getElementById('authSubmit');
+  if (!email || !password) { err.textContent = 'Enter your email and password.'; return; }
+  btn.disabled = true; err.textContent = '';
+  try {
+    const r = await fetch(`${API}/auth/${authMode}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const detail = Array.isArray(d.detail) ? d.detail.map(x => x.msg).join(' ') : d.detail;
+      throw new Error(detail || r.statusText);
+    }
+    document.getElementById('authPassword').value = '';
+    document.getElementById('authOverlay').style.display = 'none';
+    document.getElementById('userEmail').textContent = d.email;
+    await init();
+  } catch (e) { err.textContent = e.message; }
+  btn.disabled = false;
+}
+async function refreshUsage() {
+  try {
+    const r = await fetch(`${API}/auth/usage`); if (!r.ok) return;
+    const u = await r.json();
+    document.getElementById('usageLine').textContent =
+      u.limit ? `${u.remaining} of ${u.limit} questions left today` : '';
+  } catch {}
+}
+async function logout() {
+  try { await fetch(`${API}/auth/logout`, {method: 'POST'}); } catch {}
+  clearTimeout(pollTimer);
+  activeChat = null; localStorage.removeItem('activeChat');
+  msgContainer.innerHTML = WELCOME_HTML;
+  document.getElementById('chatList').innerHTML = '';
+  document.getElementById('docList').innerHTML = '<div class="empty-docs">No documents yet.</div>';
+  document.getElementById('userEmail').textContent = '';
+  document.getElementById('usageLine').textContent = '';
+  authMode = 'login'; showAuth();
+}
+document.getElementById('authPassword').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
+document.getElementById('authEmail').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('authPassword').focus(); });
+let activeChat = localStorage.getItem('activeChat');
+function chatId() { return activeChat; }
+function toast(msg, type='success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = `show ${type}`;
+  clearTimeout(el._t); el._t = setTimeout(() => el.className = '', 3200);
+}
+function docIcon(t) {
+  const m = {pdf:'📄', md:'📝', markdown:'📝', txt:'📃', docx:'📘', xlsx:'📊', xlsm:'📊', csv:'📊', tsv:'📊',
+             pptx:'📽', html:'🌐', htm:'🌐', json:'🧾', xml:'🧾', png:'🖼', jpg:'🖼', jpeg:'🖼', webp:'🖼',
+             bmp:'🖼', tif:'🖼', tiff:'🖼', gif:'🖼'};
+  return m[t] ?? '📃';
+}
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+const ta = document.getElementById('questionInput');
+ta.addEventListener('input', () => { ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,140)+'px'; });
+ta.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendQuery();} });
+
+async function loadHealth() {
+  try {
+    const r = await fetch(`${API}/health`), d = await r.json();
+    document.getElementById('badge-mq').className = 'badge-pill ' + (d.multi_query ? 'on' : 'off');
+    document.getElementById('badge-rr').className = 'badge-pill ' + (d.reranker ? 'on' : 'off');
+  } catch{}
+}
+
+const dz = document.getElementById('dropZone'), fi = document.getElementById('fileInput');
+['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drag-over'); }));
+['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag-over'); }));
+dz.addEventListener('drop', e => { const f=Array.from(e.dataTransfer.files); if(f.length) uploadFiles(f); });
+fi.addEventListener('change', () => { if(fi.files.length) uploadFiles(Array.from(fi.files)); });
+
+async function uploadFiles(files) {
+  const prog=document.getElementById('uploadProgress'), status=document.getElementById('uploadStatus');
+  prog.classList.add('visible');
+  for (const file of files) {
+    status.textContent = `Uploading ${file.name}…`;
+    const fd = new FormData(); fd.append('file', file); fd.append('chat_id', chatId());
+    try {
+      const r = await fetch(`${API}/upload`, {method:'POST', body:fd}), d = await r.json();
+      if (!r.ok) throw new Error(d.detail ?? r.statusText);
+      toast(`⏳ ${file.name} uploaded — indexing in the background`, 'success');
+    } catch(err) { toast(`❌ ${file.name}: ${err.message}`, 'error'); }
+  }
+  prog.classList.remove('visible'); fi.value = ''; await loadDocs();
+}
+
+// Poll while any document is still being indexed.
+let pollTimer = null;
+const knownStatus = {};
+function schedulePoll(docs) {
+  clearTimeout(pollTimer);
+  if (docs.some(d => d.status === 'processing')) pollTimer = setTimeout(loadDocs, 1000);
+}
+
+async function loadDocs() {
+  try {
+    const r = await fetch(`${API}/documents?chat_id=${encodeURIComponent(chatId())}`), d = await r.json();
+    const docs = d.documents || [];
+    for (const doc of docs) {
+      if (knownStatus[doc.doc_id] === 'processing' && doc.status === 'ready') toast(`✅ ${doc.filename} — ${doc.chunk_count} chunks indexed`, 'success');
+      if (knownStatus[doc.doc_id] === 'processing' && doc.status === 'failed') toast(`❌ ${doc.filename}: ${doc.error || 'indexing failed'}`, 'error');
+      knownStatus[doc.doc_id] = doc.status;
+    }
+    renderDocs(docs); schedulePoll(docs);
+  } catch { renderDocs([]); }
+}
+
+function docMeta(d) {
+  if (d.status === 'processing') return `⏳ ${esc(d.progress || 'Indexing…')}`;
+  if (d.status === 'failed') return `❌ ${esc(d.error || 'Failed')}`;
+  const base = `${d.chunk_count} chunks · ${d.file_type.toUpperCase()}`;
+  return d.error ? `${base}<br>⚠ ${esc(d.error)}` : base;
+}
+
+function renderDocs(docs) {
+  const el = document.getElementById('docList');
+  if (!docs.length) { el.innerHTML = '<div class="empty-docs">No documents yet.</div>'; return; }
+  const hint = docs.some(d => d.status === 'processing')
+    ? '<div class="empty-docs" style="padding:4px 0 10px;text-align:left">You can keep chatting. A document becomes searchable when its indexing finishes.</div>' : '';
+  el.innerHTML = hint + docs.map(d => `
+    <div class="doc-card" id="doc-${d.doc_id}">
+      <span class="doc-icon">${docIcon(d.file_type)}</span>
+      <div class="doc-info">
+        <div class="doc-name" title="${esc(d.filename)}">${esc(d.filename)}</div>
+        <div class="doc-meta">${docMeta(d)}</div>
+      </div>
+      <button class="doc-del" onclick="deleteDoc('${d.doc_id}','${esc(d.filename)}')" title="Delete">🗑</button>
+    </div>`).join('');
+}
+
+async function deleteDoc(docId, name) {
+  if (!confirm(`Delete "${name}"?`)) return;
+  try {
+    const r = await fetch(`${API}/documents/${docId}`, {method:'DELETE'});
+    if (!r.ok) throw new Error((await r.json()).detail);
+    document.getElementById(`doc-${docId}`)?.remove();
+    toast(`🗑 Deleted ${name}`, 'success'); loadDocs();
+  } catch(err) { toast(`Error: ${err.message}`, 'error'); }
+}
+
+const msgContainer = document.getElementById('messages');
+const WELCOME_HTML = msgContainer.innerHTML;
+function scoreColor(v) { if(v>=0.8) return '#4caf82'; if(v>=0.5) return '#f0c060'; return '#f06060'; }
+
+function appendMsg(role, content, hits, hallucinated, retrieval_mode, question) {
+  document.getElementById('welcome')?.remove();
+  const el = document.createElement('div'); el.className = `msg ${role}`;
+  const bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.textContent = content;
+  el.appendChild(bubble);
+
+  if (role === 'assistant' && hits && hits.length) {
+    if (retrieval_mode) {
+      const mb = document.createElement('div'); mb.className = 'mode-badge';
+      mb.textContent = `🔧 ${retrieval_mode}`; el.appendChild(mb);
+    }
+    const actionRow = document.createElement('div'); actionRow.className = 'action-row';
+    const srcBtn = document.createElement('button'); srcBtn.className = 'sources-toggle';
+    srcBtn.textContent = `📎 ${hits.length} source${hits.length>1?'s':''}`;
+    srcBtn.onclick = () => panel.classList.toggle('open');
+    actionRow.appendChild(srcBtn);
+
+    const evalBtn = document.createElement('button'); evalBtn.className = 'eval-btn';
+    evalBtn.textContent = '📊 Evaluate (RAGAS)';
+    evalBtn.onclick = () => runEval(question, content, hits.map(h=>h.text), ragasCard, evalBtn);
+    actionRow.appendChild(evalBtn);
+    el.appendChild(actionRow);
+
+    const panel = document.createElement('div'); panel.className = 'sources-panel';
+    panel.innerHTML = hits.map((h,i) => {
+      const loc = h.page != null ? `Page ${h.page}` : (h.section || '');
+      return `<div class="source-chip">
+        <span class="src-label">[${i+1}] ${esc(h.doc_name || h.doc_id)} · ${esc(loc)} <em style="font-weight:400;color:var(--text-dim)">(score ${h.score.toFixed(4)})</em></span>
+        <span class="src-text">${esc(h.text.slice(0,240))}${h.text.length>240?'…':''}</span>
+      </div>`;
+    }).join('');
+    el.appendChild(panel);
+
+    const ragasCard = document.createElement('div'); ragasCard.className = 'ragas-card';
+    el.appendChild(ragasCard);
+  }
+
+  if (hallucinated && hallucinated.length) {
+    const w = document.createElement('div'); w.className = 'warn-banner';
+    w.textContent = `⚠️ Unverified citations: ${hallucinated.join(', ')}`; el.appendChild(w);
+  }
+  msgContainer.appendChild(el); msgContainer.scrollTop = msgContainer.scrollHeight;
+}
+
+async function runEval(question, answer, contexts, card, btn) {
+  btn.disabled = true; btn.textContent = '⏳ Evaluating…';
+  card.className = 'ragas-card open';
+  card.innerHTML = '<div style="font-size:.78rem;color:var(--text-dim)">Running RAGAS metrics… this may take ~30s</div>';
+  try {
+    const r = await fetch(`${API}/evaluate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, answer, contexts }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail ?? r.statusText);
+    renderRagasCard(card, d); btn.textContent = '📊 RAGAS ✓';
+  } catch(err) {
+    card.innerHTML = `<div class="warn-banner">Evaluation failed: ${esc(err.message)}</div>`;
+    btn.disabled = false; btn.textContent = '📊 Evaluate (RAGAS)';
+  }
+}
+
+function renderRagasCard(card, d) {
+  const metrics = [
+    { key: 'faithfulness', label: 'Faithfulness', desc: 'Claims supported by context' },
+    { key: 'answer_relevancy', label: 'Answer Relevancy', desc: 'Answer relevance to question' },
+    { key: 'context_precision', label: 'Context Precision', desc: 'Context usefulness' },
+    { key: 'context_recall', label: 'Context Recall', desc: 'Coverage (needs ground truth)' },
+  ];
+  card.innerHTML = `<h4>📊 RAGAS Evaluation Scores</h4><div class="ragas-metrics">${
+    metrics.map(m => {
+      const v = d[m.key];
+      if (v == null) return `<div class="metric-item"><div class="metric-label">${m.label}</div><div class="metric-na">N/A</div></div>`;
+      const pct = Math.round(v * 100), color = scoreColor(v);
+      return `<div class="metric-item">
+        <div class="metric-label" title="${m.desc}">${m.label}</div>
+        <div class="metric-bar-track"><div class="metric-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+        <div class="metric-value" style="color:${color}">${v.toFixed(3)}</div>
+      </div>`;
+    }).join('')
+  }</div>`;
+}
+
+function appendTyping() {
+  document.getElementById('welcome')?.remove();
+  const el = document.createElement('div'); el.className = 'msg assistant'; el.id = 'typing-indicator';
+  el.innerHTML = `<div class="bubble typing"><span></span><span></span><span></span></div>`;
+  msgContainer.appendChild(el); msgContainer.scrollTop = msgContainer.scrollHeight;
+}
+
+async function sendQuery() {
+  const q = document.getElementById('questionInput').value.trim();
+  if (!q) return;
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true; document.getElementById('questionInput').value = ''; ta.style.height = 'auto';
+  const askedIn = chatId();
+  appendMsg('user', q); appendTyping();
+  try {
+    const r = await fetch(`${API}/query`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q, chat_id: askedIn }),
+    });
+    const d = await r.json();
+    document.getElementById('typing-indicator')?.remove();
+    if (askedIn !== activeChat) { btn.disabled = false; renderChats(); return; }  // user switched chats meanwhile
+    if (!r.ok) appendMsg('assistant', `Error: ${d.detail ?? r.statusText}`);
+    else appendMsg('assistant', d.answer, d.sources, d.hallucinated_citations, d.retrieval_mode, q);
+  } catch(err) {
+    document.getElementById('typing-indicator')?.remove();
+    appendMsg('assistant', `Network error: ${err.message}`);
+  }
+  btn.disabled = false; document.getElementById('questionInput').focus();
+  renderChats(); refreshUsage();
+}
+
+// ── Chats ────────────────────────────────────────────────────────────────────
+async function fetchChats() {
+  const r = await fetch(`${API}/chats`);
+  return (await r.json()).chats || [];
+}
+
+async function renderChats() {
+  try {
+    const chats = await fetchChats();
+    document.getElementById('chatList').innerHTML = chats.map(c => `
+      <div class="chat-item ${c.chat_id === activeChat ? 'active' : ''}" onclick="switchChat('${c.chat_id}')">
+        <span class="chat-title" title="${esc(c.title)}">💬 ${esc(c.title)}</span>
+        <button class="chat-del" onclick="event.stopPropagation(); deleteChat('${c.chat_id}', '${esc(c.title).replace(/'/g, '')}')" title="Delete chat">🗑</button>
+      </div>`).join('');
+  } catch {}
+}
+
+async function newChat() {
+  try {
+    const r = await fetch(`${API}/chats`, {method: 'POST'});
+    if (!r.ok) throw new Error('Could not create a chat');
+    await switchChat((await r.json()).chat_id);
+  } catch (err) { toast(`Error: ${err.message}`, 'error'); }
+}
+
+async function switchChat(id) {
+  activeChat = id; localStorage.setItem('activeChat', id);
+  msgContainer.innerHTML = WELCOME_HTML;          // an empty chat starts from scratch
+  renderChats(); loadDocs(); loadMessages();
+}
+
+async function loadMessages() {
+  const id = activeChat;
+  try {
+    const r = await fetch(`${API}/chats/${encodeURIComponent(id)}/messages`);
+    if (!r.ok || id !== activeChat) return;       // ignore a stale response after switching
+    const msgs = (await r.json()).messages || [];
+    let lastQuestion = '';
+    for (const m of msgs) {
+      if (m.role === 'user') { lastQuestion = m.content; appendMsg('user', m.content); }
+      else appendMsg('assistant', m.content, m.sources, [], m.retrieval_mode, lastQuestion);
+    }
+  } catch {}
+}
+
+async function deleteChat(id, title) {
+  if (!confirm(`Delete chat "${title}" with all its documents and messages?`)) return;
+  try {
+    const r = await fetch(`${API}/chats/${encodeURIComponent(id)}`, {method: 'DELETE'});
+    if (!r.ok) throw new Error((await r.json()).detail);
+    toast('🗑 Chat deleted', 'success');
+    if (id === activeChat) { activeChat = null; await init(); } else renderChats();
+  } catch (err) { toast(`Error: ${err.message}`, 'error'); }
+}
+
+async function init() {
+  loadHealth(); refreshUsage();
+  let chats = [];
+  try { chats = await fetchChats(); } catch {}
+  let id = chats.some(c => c.chat_id === activeChat) ? activeChat : (chats[0] && chats[0].chat_id);
+  if (!id) {
+    const r = await fetch(`${API}/chats`, {method: 'POST'});
+    id = (await r.json()).chat_id;
+  }
+  await switchChat(id);
+}
+
+async function boot() {
+  try {
+    const r = await fetch(`${API}/auth/me`);
+    if (r.ok) { document.getElementById('userEmail').textContent = (await r.json()).email; await init(); return; }
+  } catch {}
+  showAuth();
+}
+boot();
+</script>
+</body>
+</html>

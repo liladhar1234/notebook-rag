@@ -1,0 +1,41 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: notebook_rag_api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Hot-reload: mount source so uvicorn --reload picks up changes
+      - ./src:/app/src
+      # Persistent data: qdrant store, sqlite registry, uploaded files
+      - ./data:/app/data
+    environment:
+      # Storage
+      QDRANT_PATH: /app/data/qdrant
+      REGISTRY_DB_PATH: /app/data/registry.db
+      UPLOAD_DIR: /app/data/uploads
+      # Embeddings
+      DENSE_MODEL: BAAI/bge-small-en-v1.5
+      SPARSE_MODEL: Qdrant/bm25
+      # Retrieval
+      RETRIEVAL_TOP_N: "30"
+      RETRIEVAL_TOP_K: "6"
+      RRF_K: "60"
+      # Chunking
+      CHUNK_TOKENS: "400"
+      CHUNK_OVERLAP_TOKENS: "60"
+      # LLM — override via a local .env file or your shell env
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai_compat}
+      LLM_MODEL: ${LLM_MODEL:-gemini-3.8-flash}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
